@@ -154,8 +154,8 @@ These PyTorchJobs are labeled with `kueue.x-k8s.io/queue-name: training-queue`, 
 ```bash
 kubectl get pytorchjob -n training
 kubectl get pods -n training -o wide
-kubectl logs -n training -l pytorch-job-name=housing-price-train --all-containers=true
-kubectl logs -n training -l pytorch-job-name=nemotron4b-healthcare-finetune --all-containers=true
+kubectl logs -n training -l training.kubeflow.org/job-name=housing-price-train --all-containers=true
+kubectl logs -n training -l training.kubeflow.org/job-name=nemotron4b-healthcare-finetune --all-containers=true
 ```
 
 ### 4.6 vLLM Nemotron 3 Nano (single-node, 2x A100)
