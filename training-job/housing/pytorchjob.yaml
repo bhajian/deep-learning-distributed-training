@@ -28,7 +28,7 @@ spec:
             cloud.google.com/gke-accelerator: "nvidia-tesla-a100"
           containers:
             - name: pytorch
-              image: gcr.io/openenv-8t66t/housing-price-train:latest
+              image: us-central1-docker.pkg.dev/${PROJECT_ID}/gke-training/housing-price-train:latest
               imagePullPolicy: Always
               command: ["python", "/workspace/train.py"]
               env:
@@ -61,7 +61,7 @@ spec:
             cloud.google.com/gke-accelerator: "nvidia-tesla-a100"
           containers:
             - name: pytorch
-              image: gcr.io/openenv-8t66t/housing-price-train:latest
+              image: us-central1-docker.pkg.dev/${PROJECT_ID}/gke-training/housing-price-train:latest
               imagePullPolicy: Always
               command: ["python", "/workspace/train.py"]
               env:

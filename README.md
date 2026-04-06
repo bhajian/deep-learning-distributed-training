@@ -11,7 +11,7 @@ This repo provisions a GKE cluster with A100 GPUs and a CPU node pool, then inst
 gcloud auth login
 gcloud auth application-default login
 
-gcloud config set project openenv-8t66t
+gcloud config set project YOUR_PROJECT_ID
 gcloud config set compute/region us-central1
 gcloud config set compute/zone us-central1-a
 ```
@@ -22,7 +22,8 @@ gcloud services enable \
   compute.googleapis.com \
   container.googleapis.com \
   iam.googleapis.com \
-  serviceusage.googleapis.com
+  serviceusage.googleapis.com \
+  artifactregistry.googleapis.com
 ```
 
 ## 3) Terraform: create VPC + GKE + node pools
@@ -34,7 +35,7 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars
 ```
 Edit `infra/terraform.tfvars`:
 ```
-project_id      = "openenv-8t66t"
+project_id      = "YOUR_PROJECT_ID"
 admin_cidr      = "0.0.0.0/0"
 region          = "us-central1"
 node_locations  = ["us-central1-a"]
@@ -58,7 +59,7 @@ terraform apply
 
 ### Get kubeconfig
 ```bash
-gcloud container clusters get-credentials gke-a100 --region us-central1 --project openenv-8t66t
+gcloud container clusters get-credentials gke-a100 --region us-central1 --project YOUR_PROJECT_ID
 ```
 
 ## 4) Kubernetes installs (manifests)
@@ -101,16 +102,31 @@ kubectl apply --server-side -k k8s/kubeflow-training-operator
 ### 4.5 Training jobs (containerized, multi-node, Kueue gang scheduling)
 All training jobs live under `training-job/` with source code, Dockerfiles, build scripts, and PyTorchJob manifests.
 
+If you are on an ARM Mac, build for amd64:
+```bash
+export PLATFORM=linux/amd64
+```
+Create an Artifact Registry repo (one-time):
+```bash
+gcloud artifacts repositories create gke-training \
+  --repository-format=docker \
+  --location=us-central1 \
+  --description="GKE training images"
+```
+
 #### 4.5.1 Housing price prediction (DDP, 2x A100)
 Build and push the image:
 ```bash
 cd training-job/housing
-export PROJECT_ID=openenv-8t66t
+export PROJECT_ID=YOUR_PROJECT_ID
+export REGION=us-central1
+export REPO=gke-training
 ./build_and_push.sh
 ```
 Submit the job:
 ```bash
-kubectl apply -f training-job/housing/pytorchjob.yaml
+export PROJECT_ID=YOUR_PROJECT_ID
+envsubst < training-job/housing/pytorchjob.yaml | kubectl apply -f -
 kubectl get pytorchjob -n training
 kubectl get pods -n training
 ```
@@ -119,17 +135,28 @@ kubectl get pods -n training
 Build and push the image:
 ```bash
 cd training-job/nemotron4b
-export PROJECT_ID=openenv-8t66t
+export PROJECT_ID=YOUR_PROJECT_ID
+export REGION=us-central1
+export REPO=gke-training
 ./build_and_push.sh
 ```
 Submit the job:
 ```bash
-kubectl apply -f training-job/nemotron4b/pytorchjob.yaml
+export PROJECT_ID=YOUR_PROJECT_ID
+envsubst < training-job/nemotron4b/pytorchjob.yaml | kubectl apply -f -
 kubectl get pytorchjob -n training
 kubectl get pods -n training
 ```
 
 These PyTorchJobs are labeled with `kueue.x-k8s.io/queue-name: training-queue`, so they are gang scheduled by Kueue.
+
+#### 4.5.3 Job status and logs
+```bash
+kubectl get pytorchjob -n training
+kubectl get pods -n training -o wide
+kubectl logs -n training -l pytorch-job-name=housing-price-train --all-containers=true
+kubectl logs -n training -l pytorch-job-name=nemotron4b-healthcare-finetune --all-containers=true
+```
 
 ### 4.6 vLLM Nemotron 3 Nano (single-node, 2x A100)
 ```bash
@@ -162,46 +189,6 @@ curl http://$VLLM_LB_IP:8000/v1/models
 If you need to pull from Hugging Face private models, create a token secret:
 ```bash
 kubectl create secret generic hf-token -n vllm --from-literal=token=YOUR_HF_TOKEN
-```
-
-## 5) Training and fine-tuning (containerized, Kueue + gang scheduling)
-All training workloads are under `training-job/` and run via Kubeflow Training Operator + Kueue.
-
-### 5.1 Build + push images
-If you are on an ARM Mac, build for amd64:
-```bash
-export PLATFORM=linux/amd64
-```
-Housing price prediction:
-```bash
-cd training-job/housing
-export PROJECT_ID=openenv-8t66t
-./build_and_push.sh
-```
-
-Nemotron 4B LoRA fine-tune:
-```bash
-cd training-job/nemotron4b
-export PROJECT_ID=openenv-8t66t
-./build_and_push.sh
-```
-
-### 5.2 Submit jobs (gang scheduled)
-```bash
-kubectl apply -f training-job/housing/pytorchjob.yaml
-kubectl apply -f training-job/nemotron4b/pytorchjob.yaml
-```
-
-Check status:
-```bash
-kubectl get pytorchjob -n training
-kubectl get pods -n training
-```
-
-If you need to reapply with a different queue label, delete the old job first (queue label is immutable):
-```bash
-kubectl delete pytorchjob -n training housing-price-train
-kubectl delete pytorchjob -n training nemotron4b-healthcare-finetune
 ```
 
 ## Notes
