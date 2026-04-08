@@ -79,7 +79,12 @@ def main():
 
     dataset = dataset.map(format_example, remove_columns=dataset.column_names)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+    # Some Nemotron tokenizers fail to load with the fast Rust tokenizer.
+    # Try fast first, then fall back to the Python tokenizer.
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True, trust_remote_code=True)
+    except Exception:
+        tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=False, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -104,6 +109,7 @@ def main():
         model_id,
         torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True,
+        trust_remote_code=True,
     )
     model.gradient_checkpointing_enable()
 

@@ -121,6 +121,9 @@ cd training-job/housing
 export PROJECT_ID=YOUR_PROJECT_ID
 export REGION=us-central1
 export REPO=gke-training
+# If local build fails, use Cloud Build:
+# export CLOUD_BUILD=1
+# export CLOUD_BUILD_MACHINE_TYPE=e2-highmem-8
 ./build_and_push.sh
 ```
 Submit the job:
@@ -147,6 +150,10 @@ envsubst < training-job/nemotron4b/pytorchjob.yaml | kubectl apply -f -
 kubectl get pytorchjob -n training
 kubectl get pods -n training
 ```
+If you see `Disabling PyTorch because PyTorch >= 2.4 is required`, rebuild the image. The Dockerfile uses PyTorch 2.4+.
+If you see `KeyError: '-'` from `configuration_nemotron_h.py`, rebuild the image. The Dockerfile pins `transformers==4.48.3` (tested in the model card).
+If you see build errors for `mamba-ssm` or `causal-conv1d`, the Dockerfile uses a `*-devel` CUDA image to provide `nvcc` for compiling those extensions.
+If you see CUDA mismatch errors during build, ensure you rebuilt with the latest Dockerfile which installs `mamba-ssm` and `causal-conv1d` using `--no-build-isolation`.
 
 These PyTorchJobs are labeled with `kueue.x-k8s.io/queue-name: training-queue`, so they are gang scheduled by Kueue.
 
