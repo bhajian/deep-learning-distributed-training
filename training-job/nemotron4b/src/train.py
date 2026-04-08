@@ -111,7 +111,12 @@ def main():
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
-    model.gradient_checkpointing_enable()
+    # Disable gradient checkpointing to avoid DDP "marked ready twice" errors
+    # (LoRA + MoE + checkpointing can trip DDP reducer).
+    if hasattr(model, "gradient_checkpointing_disable"):
+        model.gradient_checkpointing_disable()
+    if hasattr(model, "config"):
+        model.config.use_cache = False
 
     try:
         lora_config = LoraConfig(
@@ -141,7 +146,12 @@ def main():
     model.to(device)
 
     if world_size > 1:
-        model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
+        # Static graph helps with DDP + checkpointing
+        try:
+            model._set_static_graph()
+        except Exception:
+            pass
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
