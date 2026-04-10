@@ -99,8 +99,14 @@ kubectl create ns kubeflow --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply --server-side -k k8s/kubeflow-training-operator
 ```
 
-### 4.5 Training jobs (containerized, multi-node, Kueue gang scheduling)
-All training jobs live under `training-job/` with source code, Dockerfiles, build scripts, and PyTorchJob manifests.
+### 4.5 Training jobs (two options)
+You can run the two training jobs with either:
+- Kubeflow + Kueue (PyTorchJob CRDs, gang scheduling)
+- Slurm (Slinky operator + Pyxis)
+
+#### 4.5.0 Kubeflow + Kueue layout
+Kubeflow-based training jobs live under `training-job-kubeflow/` with source code, Dockerfiles, build scripts, and PyTorchJob manifests.
+Slurm-based training jobs live under `training-job-slurm/` with similar code and Slurm submission scripts.
 
 If you are on an ARM Mac, build for amd64:
 ```bash
@@ -117,7 +123,7 @@ gcloud artifacts repositories create gke-training \
 #### 4.5.1 Housing price prediction (DDP, 2x A100)
 Build and push the image:
 ```bash
-cd training-job/housing
+cd training-job-kubeflow/housing
 export PROJECT_ID=YOUR_PROJECT_ID
 export REGION=us-central1
 export REPO=gke-training
@@ -129,7 +135,7 @@ export REPO=gke-training
 Submit the job:
 ```bash
 export PROJECT_ID=YOUR_PROJECT_ID
-envsubst < training-job/housing/pytorchjob.yaml | kubectl apply -f -
+envsubst < training-job-kubeflow/housing/pytorchjob.yaml | kubectl apply -f -
 kubectl get pytorchjob -n training
 kubectl get pods -n training
 ```
@@ -137,7 +143,7 @@ kubectl get pods -n training
 #### 4.5.2 Nemotron 4B healthcare fine-tune (LoRA, DDP, 2x A100)
 Build and push the image:
 ```bash
-cd training-job/nemotron4b
+cd training-job-kubeflow/nemotron4b
 export PROJECT_ID=YOUR_PROJECT_ID
 export REGION=us-central1
 export REPO=gke-training
@@ -146,7 +152,7 @@ export REPO=gke-training
 Submit the job:
 ```bash
 export PROJECT_ID=YOUR_PROJECT_ID
-envsubst < training-job/nemotron4b/pytorchjob.yaml | kubectl apply -f -
+envsubst < training-job-kubeflow/nemotron4b/pytorchjob.yaml | kubectl apply -f -
 kubectl get pytorchjob -n training
 kubectl get pods -n training
 ```
@@ -165,14 +171,79 @@ kubectl logs -n training -l training.kubeflow.org/job-name=housing-price-train -
 kubectl logs -n training -l training.kubeflow.org/job-name=nemotron4b-healthcare-finetune --all-containers=true
 ```
 
-### 4.6 vLLM Nemotron 3 Nano (single-node, 2x A100)
+### 4.6 Slurm (Slinky operator)
+This installs Slurm on Kubernetes and enables Pyxis for containerized jobs (`srun --container-image`). The values file in `k8s/slinky/values-slurm.yaml` is preconfigured for A100 nodes and a `gpu` partition.
+
+Install (one-time):
+```bash
+export SLINKY_VERSION=1.0.0
+./k8s/slinky/install.sh
+kubectl -n slurm get pods
+```
+
+If you need to change GPU node selection or partition defaults, edit:
+`k8s/slinky/values-slurm.yaml`
+
+#### 4.6.1 Slurm jobs (housing price prediction)
+Build/push the image (same as Kubeflow job) if you have not already:
+```bash
+cd training-job-slurm/housing
+export PROJECT_ID=YOUR_PROJECT_ID
+export REGION=us-central1
+export REPO=gke-training
+./build_and_push.sh
+```
+
+Submit the job (from a Slurm login pod):
+```bash
+export PROJECT_ID=YOUR_PROJECT_ID
+export HOUSING_IMAGE=us-central1-docker.pkg.dev/${PROJECT_ID}/gke-training/housing-price-train:latest
+
+kubectl -n slurm get pods
+export SLURM_LOGIN_POD=<login-pod-name>  # e.g., from `kubectl -n slurm get pods | grep login`
+kubectl -n slurm exec -i "${SLURM_LOGIN_POD}" -- sbatch - < training-job-slurm/housing/slurm-job.sbatch
+```
+
+Check status:
+```bash
+kubectl -n slurm exec -it "${SLURM_LOGIN_POD}" -- squeue
+kubectl -n slurm exec -it "${SLURM_LOGIN_POD}" -- sinfo
+```
+
+#### 4.6.2 Slurm jobs (Nemotron 4B LoRA fine-tune)
+Build/push the image (same as Kubeflow job) if you have not already:
+```bash
+cd training-job-slurm/nemotron4b
+export PROJECT_ID=YOUR_PROJECT_ID
+export REGION=us-central1
+export REPO=gke-training
+./build_and_push.sh
+```
+
+Submit the job:
+```bash
+export PROJECT_ID=YOUR_PROJECT_ID
+export NEMOTRON_IMAGE=us-central1-docker.pkg.dev/${PROJECT_ID}/gke-training/nemotron4b-finetune:latest
+
+kubectl -n slurm get pods
+export SLURM_LOGIN_POD=<login-pod-name>  # e.g., from `kubectl -n slurm get pods | grep login`
+kubectl -n slurm exec -i "${SLURM_LOGIN_POD}" -- sbatch - < training-job-slurm/nemotron4b/slurm-job.sbatch
+```
+
+Check status:
+```bash
+kubectl -n slurm exec -it "${SLURM_LOGIN_POD}" -- squeue
+kubectl -n slurm exec -it "${SLURM_LOGIN_POD}" -- sinfo
+```
+
+### 4.7 vLLM Nemotron 3 Nano (single-node, 2x A100)
 ```bash
 kubectl apply -f k8s/vllm/nemotron-vllm.yaml
 kubectl get pods -n vllm
 ```
 This deployment requests 2 GPUs per pod and uses `--tensor-parallel-size 2`, so it requires a 2‑GPU node (e.g., `a2-highgpu-2g`).
 
-### 4.7 vLLM Nemotron 3 Nano (multi-node Ray launcher, 2x A100 on separate nodes)
+### 4.8 vLLM Nemotron 3 Nano (multi-node Ray launcher, 2x A100 on separate nodes)
 This runs a **single vLLM server** sharded across **2 nodes with 1 GPU each** using Ray.
 
 ```bash
