@@ -104,6 +104,55 @@ You can run the two training jobs with either:
 - Kubeflow + Kueue (PyTorchJob CRDs, gang scheduling)
 - Slurm (Slinky operator + Pyxis)
 
+**Architecture**
+Kubeflow + Kueue:
+```mermaid
+flowchart LR
+  subgraph GKE["GKE Cluster"]
+    subgraph K8s["Kubernetes Control Plane"]
+      KO["Kubeflow Training Operator"]
+      KQ["Kueue (gang scheduling)"]
+      CRD["PyTorchJob CRD"]
+    end
+    subgraph GPU["GPU Node Pool (A100)"]
+      P0["Master Pod (1 GPU)"]
+      P1["Worker Pod (1 GPU)"]
+    end
+    AR["Artifact Registry"]
+  end
+
+  CRD --> KO
+  KO --> P0
+  KO --> P1
+  KQ --> P0
+  KQ --> P1
+  AR --> P0
+  AR --> P1
+```
+
+Slurm (Slinky + Pyxis):
+```mermaid
+flowchart LR
+  subgraph GKE["GKE Cluster"]
+    subgraph K8s["Kubernetes Control Plane"]
+      SO["Slinky Slurm Operator"]
+      SL["Slurm Control Plane (slurmctld)"]
+      LG["Slurm Login Pod (sbatch/squeue)"]
+    end
+    subgraph GPU["GPU Node Pool (A100)"]
+      SD0["slurmd + Pyxis (node 1)"]
+      SD1["slurmd + Pyxis (node 2)"]
+    end
+    AR["Artifact Registry"]
+  end
+
+  LG --> SL
+  SL --> SD0
+  SL --> SD1
+  AR --> SD0
+  AR --> SD1
+```
+
 #### 4.5.0 Kubeflow + Kueue layout
 Kubeflow-based training jobs live under `training-job-kubeflow/` with source code, Dockerfiles, build scripts, and PyTorchJob manifests.
 Slurm-based training jobs live under `training-job-slurm/` with similar code and Slurm submission scripts.
