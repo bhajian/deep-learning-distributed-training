@@ -7,6 +7,10 @@ configFiles:
   plugstack.conf: |
     include /usr/share/pyxis/*
 
+controller:
+  extraConfMap:
+    GresTypes: "gpu"
+
 loginsets:
   pyxis:
     enabled: true
@@ -17,9 +21,18 @@ loginsets:
         tag: 25.11-ubuntu24.04
       securityContext:
         privileged: true
+      volumeMounts:
+        - name: enroot-credentials
+          mountPath: /root/.config/enroot
+          readOnly: true
     podSpec:
       securityContext:
         fsGroup: 401
+      volumes:
+        - name: enroot-credentials
+          secret:
+            secretName: enroot-credentials
+            optional: true
     sssdConf: |
       [sssd]
       config_file_version = 2
@@ -42,10 +55,17 @@ nodesets:
   gpu:
     enabled: true
     replicas: 2
+    extraConfMap:
+      Gres:
+        - "gpu:1"
     slurmd:
       image:
         repository: ghcr.io/slinkyproject/slurmd-pyxis
         tag: 25.11-ubuntu24.04
+      volumeMounts:
+        - name: enroot-credentials
+          mountPath: /root/.config/enroot
+          readOnly: true
       resources:
         requests:
           cpu: "4"
@@ -67,6 +87,11 @@ nodesets:
         maxUnavailable: 25%
     taintKubeNodes: false
     podSpec:
+      volumes:
+        - name: enroot-credentials
+          secret:
+            secretName: enroot-credentials
+            optional: true
       nodeSelector:
         cloud.google.com/gke-accelerator: nvidia-tesla-a100
       tolerations:

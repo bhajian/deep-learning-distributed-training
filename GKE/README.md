@@ -223,7 +223,43 @@ kubectl logs -n training -l training.kubeflow.org/job-name=nemotron4b-healthcare
 ### 4.6 Slurm (Slinky operator)
 This installs Slurm on Kubernetes and enables Pyxis for containerized jobs (`srun --container-image`). The values file in `k8s/slinky/values-slurm.yaml` is preconfigured for A100 nodes and a `gpu` partition.
 
-Install (one-time):
+#### 4.6.0 Required: Artifact Registry auth for Pyxis/Enroot
+Before installing Slurm jobs, create a reader identity for Artifact Registry and store Enroot credentials as a Kubernetes secret:
+```bash
+export PROJECT_ID=YOUR_PROJECT_ID
+export REGION=us-central1
+export REPO=gke-training
+export AR_SA=slurm-ar-reader
+export AR_SA_EMAIL="${AR_SA}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+gcloud config set project "$PROJECT_ID"
+gcloud iam service-accounts describe "$AR_SA_EMAIL" --project "$PROJECT_ID" >/dev/null 2>&1 || \
+  gcloud iam service-accounts create "$AR_SA" --project "$PROJECT_ID"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${AR_SA_EMAIL}" \
+  --role="roles/artifactregistry.reader"
+
+gcloud iam service-accounts keys create /tmp/${AR_SA}.json \
+  --project "$PROJECT_ID" \
+  --iam-account "$AR_SA_EMAIL"
+
+AR_KEY_B64="$(base64 < /tmp/${AR_SA}.json | tr -d '\n')"
+cat > /tmp/enroot.credentials <<EOF
+machine ${REGION}-docker.pkg.dev login _json_key_base64 password ${AR_KEY_B64}
+EOF
+
+kubectl create ns slurm --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n slurm create secret generic enroot-credentials \
+  --from-file=.credentials=/tmp/enroot.credentials \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+How credentials are available inside pods:
+- `k8s/slinky/values-slurm.yaml` mounts secret `enroot-credentials` into login and worker pods at `/root/.config/enroot`.
+- Enroot/Pyxis automatically reads `/root/.config/enroot/.credentials` when importing `docker://...` images.
+
+Install/upgrade Slurm (one-time or after changing values):
 ```bash
 export SLINKY_VERSION=1.0.0
 ./k8s/slinky/install.sh
@@ -249,8 +285,10 @@ export PROJECT_ID=YOUR_PROJECT_ID
 export HOUSING_IMAGE=us-central1-docker.pkg.dev/${PROJECT_ID}/gke-training/housing-price-train:latest
 
 kubectl -n slurm get pods
-export SLURM_LOGIN_POD=<login-pod-name>  # e.g., from `kubectl -n slurm get pods | grep login`
-kubectl -n slurm exec -i "${SLURM_LOGIN_POD}" -- sbatch - < training-job-slurm/housing/slurm-job.sbatch
+export SLURM_LOGIN_POD="$(kubectl -n slurm get pod -l app.kubernetes.io/component=login -o jsonpath='{.items[0].metadata.name}')"
+kubectl -n slurm exec -i "${SLURM_LOGIN_POD}" -- \
+  sbatch --export=ALL,HOUSING_IMAGE="${HOUSING_IMAGE}" \
+  < training-job-slurm/housing/slurm-job.sbatch
 ```
 
 Check status:
@@ -275,8 +313,10 @@ export PROJECT_ID=YOUR_PROJECT_ID
 export NEMOTRON_IMAGE=us-central1-docker.pkg.dev/${PROJECT_ID}/gke-training/nemotron4b-finetune:latest
 
 kubectl -n slurm get pods
-export SLURM_LOGIN_POD=<login-pod-name>  # e.g., from `kubectl -n slurm get pods | grep login`
-kubectl -n slurm exec -i "${SLURM_LOGIN_POD}" -- sbatch - < training-job-slurm/nemotron4b/slurm-job.sbatch
+export SLURM_LOGIN_POD="$(kubectl -n slurm get pod -l app.kubernetes.io/component=login -o jsonpath='{.items[0].metadata.name}')"
+kubectl -n slurm exec -i "${SLURM_LOGIN_POD}" -- \
+  sbatch --export=ALL,NEMOTRON_IMAGE="${NEMOTRON_IMAGE}" \
+  < training-job-slurm/nemotron4b/slurm-job.sbatch
 ```
 
 Check status:
