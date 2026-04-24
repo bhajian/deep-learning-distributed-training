@@ -17,8 +17,28 @@ loginsets:
         tag: 25.11-ubuntu24.04
       securityContext:
         privileged: true
+    podSpec:
+      securityContext:
+        fsGroup: 401
+    sssdConf: |
+      [sssd]
+      config_file_version = 2
+      services = nss,pam
+      domains = LOCAL
+
+      [nss]
+      filter_groups = root,slurm
+      filter_users = root,slurm
+
+      [pam]
+
+      [domain/LOCAL]
+      id_provider = files
+      auth_provider = files
 
 nodesets:
+  slinky:
+    enabled: false
   gpu:
     enabled: true
     replicas: 2
@@ -35,7 +55,17 @@ nodesets:
           cpu: "8"
           memory: 64Gi
           nvidia.com/gpu: 1
+    logfile:
+      image:
+        repository: docker.io/library/alpine
+        tag: latest
+      resources: {}
     useResourceLimits: true
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 25%
+    taintKubeNodes: false
     podSpec:
       nodeSelector:
         cloud.google.com/gke-accelerator: nvidia-tesla-a100

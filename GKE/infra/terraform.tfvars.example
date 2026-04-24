@@ -10,3 +10,6 @@ gpu_node_count = 1
 gpu_machine_type = "a2-highgpu-2g"
 gpu_type         = "nvidia-tesla-a100"
 gpu_count_per_node = 2
+
+cpu_node_count   = 3
+cpu_machine_type = "e2-standard-8"
